@@ -9,6 +9,7 @@ use crate::data::{
 use crate::modals::{FileDialogModal, ModalAction, ModalState, OverwriteFileModal};
 use crate::{FileSystem, NativeFileSystem};
 use egui::text::{CCursor, CCursorRange};
+use egui::Ui;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -388,13 +389,13 @@ impl FileDialog {
     /// The main update method that should be called every frame if the dialog is to be visible.
     ///
     /// This function has no effect if the dialog state is currently not `DialogState::Open`.
-    pub fn update(&mut self, ctx: &egui::Context) -> &Self {
+    pub fn update(&mut self, ctx: &egui::Context, ui: &mut Ui) -> &Self {
         if self.state != DialogState::Open {
             return self;
         }
 
         self.update_keybindings(ctx);
-        self.update_ui(ctx, None);
+        self.update_ui(None, ctx, ui);
 
         self
     }
@@ -407,32 +408,6 @@ impl FileDialog {
     /// Clears the width of the right panel by setting it to None.
     pub fn clear_right_panel_width(&mut self) {
         self.config.right_panel_width = None;
-    }
-
-    /// Do an [update](`Self::update`) with a custom right panel ui.
-    ///
-    /// Example use cases:
-    /// - Show custom information for a file (size, MIME type, etc.)
-    /// - Embed a preview, like a thumbnail for an image
-    /// - Add controls for custom open options, like open as read-only, etc.
-    ///
-    /// See [`active_entry`](Self::active_entry) to get the active directory entry
-    /// to show the information for.
-    ///
-    /// This function has no effect if the dialog state is currently not `DialogState::Open`.
-    pub fn update_with_right_panel_ui(
-        &mut self,
-        ctx: &egui::Context,
-        f: &mut FileDialogUiCallback,
-    ) -> &Self {
-        if self.state != DialogState::Open {
-            return self;
-        }
-
-        self.update_keybindings(ctx);
-        self.update_ui(ctx, Some(f));
-
-        self
     }
 
     // -------------------------------------------------
@@ -1077,83 +1052,61 @@ impl FileDialog {
     /// Takes an optional callback to show a custom right panel.
     fn update_ui(
         &mut self,
-        ctx: &egui::Context,
         right_panel_fn: Option<&mut FileDialogUiCallback>,
-    ) {
-        let mut is_open = true;
-
-        if self.config.as_modal {
-            let re = self.ui_update_modal_background(ctx);
-            ctx.move_to_top(re.response.layer_id);
+        ctx: &egui::Context,
+        ui: &mut egui::Ui,
+    ) -> bool {
+        if !self.modals.is_empty() {
+            self.ui_update_modals(ui);
+            return false;
         }
 
-        let re = self.create_window(&mut is_open).show(ctx, |ui| {
-            if !self.modals.is_empty() {
-                self.ui_update_modals(ui);
-                return;
-            }
-
-            if self.config.show_top_panel {
-                egui::TopBottomPanel::top(self.window_id.with("top_panel"))
-                    .resizable(false)
-                    .show_inside(ui, |ui| {
-                        self.ui_update_top_panel(ui);
-                    });
-            }
-
-            if self.config.show_left_panel {
-                egui::SidePanel::left(self.window_id.with("left_panel"))
-                    .resizable(true)
-                    .default_width(150.0)
-                    .width_range(90.0..=250.0)
-                    .show_inside(ui, |ui| {
-                        self.ui_update_left_panel(ui);
-                    });
-            }
-
-            // Optionally, show a custom right panel (see `update_with_custom_right_panel`)
-            if let Some(f) = right_panel_fn {
-                let mut right_panel = egui::SidePanel::right(self.window_id.with("right_panel"))
-                    // Unlike the left panel, we have no control over the contents, so
-                    // we don't restrict the width. It's up to the user to make the UI presentable.
-                    .resizable(true);
-                if let Some(width) = self.config.right_panel_width {
-                    right_panel = right_panel.default_width(width);
-                }
-                right_panel.show_inside(ui, |ui| {
-                    f(ui, self);
-                });
-            }
-
-            egui::TopBottomPanel::bottom(self.window_id.with("bottom_panel"))
+        if self.config.show_top_panel {
+            egui::TopBottomPanel::top(self.window_id.with("top_panel"))
                 .resizable(false)
                 .show_inside(ui, |ui| {
-                    self.ui_update_bottom_panel(ui);
+                    self.ui_update_top_panel(ui);
                 });
+        }
 
-            egui::CentralPanel::default().show_inside(ui, |ui| {
-                self.ui_update_central_panel(ui);
-            });
-        });
+        if self.config.show_left_panel {
+            egui::SidePanel::left(self.window_id.with("left_panel"))
+                .resizable(true)
+                .default_width(150.0)
+                .width_range(90.0..=250.0)
+                .show_inside(ui, |ui| {
+                    self.ui_update_left_panel(ui);
+                });
+        }
 
-        if self.config.as_modal {
-            if let Some(inner_response) = re {
-                ctx.move_to_top(inner_response.response.layer_id);
+        // Optionally, show a custom right panel (see `update_with_custom_right_panel`)
+        if let Some(f) = right_panel_fn {
+            let mut right_panel = egui::SidePanel::right(self.window_id.with("right_panel"))
+                // Unlike the left panel, we have no control over the contents, so
+                // we don't restrict the width. It's up to the user to make the UI presentable.
+                .resizable(true);
+            if let Some(width) = self.config.right_panel_width {
+                right_panel = right_panel.default_width(width);
             }
+            right_panel.show_inside(ui, |ui| {
+                f(ui, self);
+            });
         }
 
-        self.any_focused_last_frame = ctx.memory(egui::Memory::focused).is_some();
+        egui::TopBottomPanel::bottom(self.window_id.with("bottom_panel"))
+            .resizable(false)
+            .show_inside(ui, |ui| {
+                self.ui_update_bottom_panel(ui);
+            });
 
-        // User closed the window without finishing the dialog
-        if !is_open {
-            self.cancel();
-        }
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.ui_update_central_panel(ui);
+        });
 
         let mut repaint = false;
 
-        // Collect dropped files:
+        // Check if files were dropped
         ctx.input(|i| {
-            // Check if files were dropped
             if let Some(dropped_file) = i.raw.dropped_files.last() {
                 if let Some(path) = &dropped_file.path {
                     if self.config.file_system.is_dir(path) {
@@ -1175,28 +1128,7 @@ impl FileDialog {
             }
         });
 
-        // Update GUI if we dropped a file
-        if repaint {
-            ctx.request_repaint();
-        }
-    }
-
-    /// Updates the main modal background of the file dialog window.
-    fn ui_update_modal_background(&self, ctx: &egui::Context) -> egui::InnerResponse<()> {
-        egui::Area::new(self.window_id.with("modal_overlay"))
-            .interactable(true)
-            .fixed_pos(egui::Pos2::ZERO)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.input(|i| i.screen_rect);
-
-                ui.allocate_response(screen_rect.size(), egui::Sense::click());
-
-                ui.painter().rect_filled(
-                    screen_rect,
-                    egui::CornerRadius::ZERO,
-                    self.config.modal_overlay_color,
-                );
-            })
+        repaint
     }
 
     fn ui_update_modals(&mut self, ui: &mut egui::Ui) {
@@ -1223,37 +1155,6 @@ impl FileDialog {
                 }
             }
         });
-    }
-
-    /// Creates a new egui window with the configured options.
-    fn create_window<'a>(&self, is_open: &'a mut bool) -> egui::Window<'a> {
-        let mut window = egui::Window::new(self.get_window_title())
-            .id(self.window_id)
-            .open(is_open)
-            .default_size(self.config.default_size)
-            .min_size(self.config.min_size)
-            .resizable(self.config.resizable)
-            .movable(self.config.movable)
-            .title_bar(self.config.title_bar)
-            .collapsible(false);
-
-        if let Some(pos) = self.config.default_pos {
-            window = window.default_pos(pos);
-        }
-
-        if let Some(pos) = self.config.fixed_pos {
-            window = window.fixed_pos(pos);
-        }
-
-        if let Some((anchor, offset)) = self.config.anchor {
-            window = window.anchor(anchor, offset);
-        }
-
-        if let Some(size) = self.config.max_size {
-            window = window.max_size(size);
-        }
-
-        window
     }
 
     /// Gets the window title to use.
