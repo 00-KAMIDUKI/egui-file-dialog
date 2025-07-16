@@ -9,7 +9,7 @@ use crate::data::{
 use crate::modals::{FileDialogModal, ModalAction, ModalState, OverwriteFileModal};
 use crate::{FileSystem, NativeFileSystem};
 use egui::text::{CCursor, CCursorRange};
-use egui::Ui;
+use egui::{Ui, UiKind};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1406,7 +1406,7 @@ impl FileDialog {
 
         if self.config.show_reload_button && ui.button(&self.config.labels.reload).clicked() {
             self.refresh();
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
 
         let working_dir = self.config.file_system.current_dir();
@@ -1416,7 +1416,7 @@ impl FileDialog {
             && ui.button(&self.config.labels.working_directory).clicked()
         {
             self.load_directory(&working_dir.unwrap_or_default());
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
 
         if (self.config.show_reload_button || self.config.show_working_directory_button)
@@ -1436,7 +1436,7 @@ impl FileDialog {
                 .clicked()
         {
             self.refresh();
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
 
         if self.config.show_system_files_option
@@ -1448,7 +1448,7 @@ impl FileDialog {
                 .clicked()
         {
             self.refresh();
-            ui.close_menu();
+            ui.close_kind(UiKind::Menu);
         }
     }
 
@@ -2394,11 +2394,11 @@ impl FileDialog {
             if pinned {
                 if ui.button(&self.config.labels.unpin_folder).clicked() {
                     self.unpin_path(path);
-                    ui.close_menu();
+                    ui.close_kind(UiKind::Menu);
                 }
             } else if ui.button(&self.config.labels.pin_folder).clicked() {
                 self.pin_path(path.to_path_buf());
-                ui.close_menu();
+                ui.close_kind(UiKind::Menu);
             }
         });
     }
